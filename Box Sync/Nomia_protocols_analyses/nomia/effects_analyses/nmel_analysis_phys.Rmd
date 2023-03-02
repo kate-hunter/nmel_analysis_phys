@@ -1,0 +1,20 @@
+---
+title: "nomia_data_anlysis"
+author: "K Hunter"
+date: "`r Sys.Date()`"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+##Notes:
+This is an updated Nmel analysis document
+
+```{r, echo=FALSE, include=FALSE}
+library(readr)
+
+compiled_nomia_data <- read_csv("~/Box Sync/Nomia_protocols_analyses/nomia/original_data_sheets/compiled_nomia_data.csv")
+
+```
