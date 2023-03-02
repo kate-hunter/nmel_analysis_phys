@@ -1,0 +1,18 @@
+---
+title: "nmel_phys"
+author: "K Hunter"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(readr)
+compiled_nomia_data <- read_csv("~/Box Sync/Nomia_protocols_analyses/nomia/original_data_sheets/compiled_nomia_data.csv")
+setwd("~/Box Sync/Nomia_protocols_analyses/nomia/effects_analyses/nmel_phys")
+
+
+```
