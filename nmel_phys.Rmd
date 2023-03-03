@@ -11,8 +11,184 @@ knitr::opts_chunk$set(echo = TRUE)
 
 ```{r}
 library(readr)
-compiled_nomia_data <- read_csv("~/Box Sync/Nomia_protocols_analyses/nomia/original_data_sheets/compiled_nomia_data.csv")
+library(ggplot2)
+library(rcompanion)
+library(nortest)
+library(lme4)
+library(lmerTest)
+library(nlme)
+library(ggsignif)  
+library(emmeans)
 setwd("~/Box Sync/Nomia_protocols_analyses/nomia/effects_analyses/nmel_phys")
-
+m <- read_csv("~/Box Sync/Nomia_protocols_analyses/nomia/original_data_sheets/compiled_nomia_data.csv")
 
 ```
+
+#Set up document with oocyte stages
+```{r, echo=FALSE, include=FALSE}
+m$left.resorbing.oocyte<-as.numeric(as.character(m$left.resorbing.oocyte))
+m$right.resorbing.oocyte<-as.numeric(as.character(m$right.resorbing.oocyte))
+m$left.resorbing.trophocyte<-as.numeric(as.character(m$left.resorbing.trophocyte))
+m$right.resorbing.trophocyte<-as.numeric(as.character(m$right.resorbing.trophocyte))
+
+#Changing any -- to NAs
+levels(m$right.resorbing.trophocyte)[levels(m$right.resorbing.trophocyte)=="--"] <- NA
+levels(m$left.resorbing.trophocyte)[levels(m$left.resorbing.trophocyte)=="--"] <- NA
+levels(m$left.resorbing.oocyte)[levels(m$left.resorbing.oocyte)=="--"] <- NA
+levels(m$right.resorbing.oocyte)[levels(m$right.resorbing.oocyte)=="--"] <- NA
+
+#Making the na's into a 0. 
+m$left.resorbing.trophocyte[is.na(m$left.resorbing.trophocyte)] <- 0
+m$right.resorbing.trophocyte[is.na(m$right.resorbing.trophocyte)] <- 0
+
+#summing into full egg chamb
+m$left.resorb.egg.chamb<-apply(m[,c('left.resorbing.trophocyte', 'left.resorbing.oocyte')],1,function(x)sum(x))
+m$right.resorb.egg.chamb<-apply(m[,c('right.resorbing.trophocyte', 'right.resorbing.oocyte')],1,function(x)sum(x))
+
+#finding percentage of oocyte chamber
+m$left.percentage.resorbing<-(m$left.resorbing.oocyte/m$left.resorb.egg.chamb)
+m$right.percentage.resorbing<-(m$right.resorbing.oocyte/m$right.resorb.egg.chamb)
+
+#picking the max of the two percentages 
+m$max_percentage_resorbing<-pmax(m$left.percentage.resorbing,m$right.percentage.resorbing, na.rm=TRUE)
+
+m$max_stage<-m$max_percentage_resorbing
+
+m$max_stage[(m$max_stage)==1] <- "5r"
+m$max_stage[(m$max_stage)<1] <- "4r"
+
+#Making the max stage of non-resorbing
+
+m$left.oocyte<-as.numeric(as.character(m$left.oocyte))
+m$left.trophocyte<-as.numeric(as.character(m$left.trophocyte))
+m$right.oocyte<-as.numeric(as.character(m$right.oocyte))
+m$right.trophocyte<-as.numeric(as.character(m$right.trophocyte))
+
+m$left.egg.chamb<-apply(m[,c('left.trophocyte', 'left.oocyte')],1,function(x)sum(x))
+m$right.egg.chamb<-apply(m[,c('right.trophocyte', 'right.oocyte')],1,function(x)sum(x))
+#finding percentage of oocyte chamber
+m$left.percentage<-(m$left.oocyte/m$left.egg.chamb)
+m$right.percentage<-(m$right.oocyte/m$right.egg.chamb)
+#picking the max of the two percentages 
+m$max_percentage_nonr<-pmax(m$left.percentage,m$right.percentage, na.rm=TRUE)
+
+m$max_stage_nonr<-m$max_percentage_nonr
+
+m$max_stage_nonr[(m$max_stage_nonr)<.45] <- "1_2"
+m$max_stage_nonr[(m$max_stage_nonr)<.551] <- "3"
+m$max_stage_nonr[(m$max_stage_nonr)<1] <- "4"
+
+for (i in 1:length(m$max_stage)){
+  if (is.na(m$max_stage[i])){
+    m$max_stage[i]<-m$max_stage_nonr[i]
+  }
+}
+
+m$max_stage<-as.factor(m$max_stage)
+stage_complete<-m[complete.cases(m$max_stage),]
+#need to change those that assign as 1_2 to either 1 or 2
+table(stage_complete$Beeid, stage_complete$max_stage, stage_complete$timespan_tx)
+#A07.18019-Stage 1 
+#H01.18047-Stage 2
+#H01.18073-Stage 2
+#H02.18024-Stage 2
+#H02.18027-Stage 1
+stage_complete$max_stage<-as.character(stage_complete$max_stage)
+stage_complete$max_stage[stage_complete$Beeid=="A07.18019"]<-"1"
+stage_complete$max_stage[stage_complete$Beeid=="H01.18047"]<-"2"
+stage_complete$max_stage[stage_complete$Beeid=="H01.18073"]<-"2"
+stage_complete$max_stage[stage_complete$Beeid=="H02.18024"]<-"2"
+stage_complete$max_stage[stage_complete$Beeid=="H02.18027"]<-"1"
+stage_complete$max_stage<-as.factor(stage_complete$max_stage)
+
+
+#Include non-resorbing/resorbing oocytes
+stage_complete$max_stage
+stage_complete$resorb_p.a<-stage_complete$max_stage
+stage_complete$resorb_p.a<-as.character(stage_complete$resorb_p.a)
+stage_complete$resorb_p.a[stage_complete$resorb_p.a=="4r" | stage_complete$resorb_p.a=="5r"] = "r"
+stage_complete$resorb_p.a[!stage_complete$resorb_p.a=="r"]="nonr"
+stage_complete$resorb_p.a<-as.factor(stage_complete$resorb_p.a)
+
+stage_complete$ecoli<-as.character(stage_complete$ecoli)
+stage_complete$ecoli<-as.factor(stage_complete$ecoli)
+stage_complete$timespan_tx <- factor(stage_complete$timespan_tx, levels = c("1", "5", "10","20"))
+```
+
+Write with stages so that I can use all of this 
+```{r, include=FALSE, echo=FALSE}
+write.csv(m, file="compileddata_with_oocytestages.csv")
+```
+
+##Fat percentage analysis
+```{r, echo=FALSE}
+m$fat_percentage<-as.numeric(m$fat_percentage)
+ggplot(aes(x = timespan_tx, y=fat_percentage, fill=ecoli), data=m)+
+  geom_boxplot()+
+  geom_point(position=position_jitterdodge())+
+  scale_fill_brewer(palette="Oranges", name="Immune Injection Treatment", labels=c("Handling Control", "Injection Control", "Immune Challenge"))+
+  xlab("Days alive")+ylab("Percentage of Abdomen covered in fat")+ggtitle("Immune and Age on fat body")
+```
+#Based on graph, decided not to do fat body statistical analysis as all measurements were all over the board
+
+#Graph for Dufour's gland
+Dufours analysis
+```{r, echo=FALSE}
+m$dufours.length<-as.numeric(as.character(m$dufours.length))
+dufplot<-ggplot(aes(x = timespan_tx, y=dufours.length, fill=ecoli), data=m)+
+  geom_boxplot()+
+  geom_point(position=position_jitterdodge())+
+  scale_fill_brewer(palette="Oranges", name="Immune Injection Treatment", labels=c("Handling Control", "Injection Control", "Immune Challenge"))+
+  xlab("Days alive")+ylab("Dufours Gland Length (mm)")+ggtitle("Immune and Age on Dufour's Gland")
+```
+Statistical Analysis
+```{r}
+plotNormalHistogram(m$dufours.length)
+ad.test(m$dufours.length)
+#normal! 
+#Need to remove the NEs and Rs
+
+n<-subset(m, timespan_tx != "R"& timespan_tx!="NE")
+n$timespan_tx
+plotNormalHistogram(n$dufours.length)
+ad.test(n$dufours.length)
+#little less normal but fine after all
+```
+
+```{r}
+summary(step(lm(dufours.length~timespan_tx+ecoli+Headwidth+colonyID+days_since_start_dissect+days_sincestart_wash+initials.of.person.dissecting+bed, data=n), direction="both"))
+final.mod<-step(lm(dufours.length~timespan_tx+ecoli+Headwidth+colonyID+days_since_start_dissect+days_sincestart_wash+initials.of.person.dissecting+bed, data=n), direction="both")
+
+duf_mod<-lmer(dufours.length~timespan_tx*ecoli+(1|Headwidth) + (1|bed), data=n)
+summary(duf_mod)
+anova(duf_mod)
+
+library(multcomp)
+summary(glht(duf_mod, linfct = mcp(timespan_tx = "Tukey")), test = adjusted("holm"))
+```
+
+#Timespan affects Dufour's Length (unsuprising perhaps)
+#New graph to show significant difference
+
+```{r, echo=FALSE}
+sigs<-dufplot+
+  geom_signif(comparisons=list(c("1", "5")), annotations="NS",
+              y_position = 6.4, tip_length = 0, vjust=0.4)+
+  geom_signif(comparisons=list(c("1", "10")), annotations="***",
+              y_position = 7, tip_length = 0, vjust=0.4)+
+  geom_signif(comparisons=list(c("1", "20")), annotations="***",
+              y_position = 7.2, tip_length = 0, vjust=0.4)+
+  geom_signif(comparisons=list(c("5", "10")), annotations="**",
+              y_position = 6.8, tip_length = 0, vjust=0.4)+
+geom_signif(comparisons=list(c("5", "20")), annotations="***",
+              y_position = 6.6, tip_length = 0, vjust=0.4)
+
+graph_model<-sigs+annotate("text", x=3.5, y=8, label="Model: dufours.length~timespan_tx*ecoli+(1|headwidth) + (1|bed)")
+
+```
+
+Oocyte analysis
+```{r}
+```
+
+Fat body analysis
