@@ -19,10 +19,17 @@ library(lmerTest)
 library(nlme)
 library(ggsignif)  
 library(emmeans)
+library(Rmisc)
+library(multcomp)
 setwd("~/Box Sync/Nomia_protocols_analyses/nomia/effects_analyses/nmel_phys")
 m <- read_csv("~/Box Sync/Nomia_protocols_analyses/nomia/original_data_sheets/compiled_nomia_data.csv")
 
+m$ecoli<-revalue(m$ecoli, c("1"="Control", "2"="Ringers", "3"="E. coli"))
+m$ecoli<-factor(m$ecoli, levels=c("Control", "Ringers", "E. coli"))
+m$dufours.length<-as.numeric(as.character(m$dufours.length))
 ```
+
+
 
 #Set up document with oocyte stages
 ```{r, echo=FALSE, include=FALSE}
@@ -113,11 +120,108 @@ stage_complete$resorb_p.a<-as.factor(stage_complete$resorb_p.a)
 stage_complete$ecoli<-as.character(stage_complete$ecoli)
 stage_complete$ecoli<-as.factor(stage_complete$ecoli)
 stage_complete$timespan_tx <- factor(stage_complete$timespan_tx, levels = c("1", "5", "10","20"))
+
+table(stage_complete$max_stage, stage_complete$timespan_tx)
 ```
 
 Write with stages so that I can use all of this 
 ```{r, include=FALSE, echo=FALSE}
 write.csv(m, file="compileddata_with_oocytestages.csv")
+```
+Relevel factors so 5 ends up on the lower end
+
+###oocyte length
+```{r}
+plotNormalHistogram(m$max_both_nonr_resorb)
+ad.test(m$max_both_nonr_resorb)
+#really close to normal, just kept?
+
+n<-subset(m, timespan_tx != "R"& timespan_tx!="NE")
+n$timespan_tx
+plotNormalHistogram(n$max_both_nonr_resorb)
+ad.test(n$max_both_nonr_resorb)
+#normal!!!
+```
+
+```{r}
+#Used the below for the paper
+oocyleng_mod_paper<-lmer(max_both_nonr_resorb~timespan_tx*ecoli+(1|Headwidth), data=n)
+#this gives the error: boundary (singular) fit: see help('isSingular') 
+#this is a result of the random effect being too small 
+oocyleng_mod_paper<-lm(max_both_nonr_resorb~timespan_tx*ecoli, data=n)
+summary(oocyleng_mod_paper)
+anova(oocyleng_mod_paper)
+
+length(n)
+```
+##Nmel oocyte Graph
+```{r}
+library(plyr)
+stderr <- summarySE(data=m, measurevar="max_both_nonr_resorb", groupvars=c("ecoli", "timespan_tx"), na.rm=FALSE,conf.interval=.95, .drop=TRUE)
+comparison <- HSD.test(oocyleng_mod_paper,c("ecoli","timespan_tx"), group=TRUE,unbalanced=TRUE)
+comparison$groups
+plot(comparison)
+```
+
+```{r}
+# stderr$timespan_tx<-factor(stderr$timespan_tx, levels=c("1", "5", "10", "20"))
+# levels(stderr$ecoli)[levels(stderr$ecoli)=="1"] <- "Control"
+# levels(stderr$ecoli)[levels(stderr$ecoli)=="2"] <- "Ringers"
+# levels(stderr$ecoli)[levels(stderr$ecoli)=="3"] <- "E. coli"
+```
+
+```{r}
+#geom_text(aes(label=paste("(",Counts,",",Duration,")"),hjust=-1, vjust=-1))
+order.group<-comparison$groups[order(rownames(comparison$groups)),]
+l<-merge(stderr, order.group, by="max_both_nonr_resorb")
+#need to reverse group order because above is reverse of what happens with dufours length CLD
+
+
+emm_ooc <- emmeans(oocyleng_mod_paper, ~ ecoli * timespan_tx)
+comparison_ooc <- pairs(emm_ooc, adjust = "tukey")
+summary(comparison_ooc)
+
+
+cld_result_ooc <- cld(emm_ooc, adjust = "tukey", Letters=letters)
+print(cld_result)
+
+```
+
+##Made another graph with sample sizes above it
+```{r}
+# ggplot(data=l, aes(x=timespan_tx, y=max_both_nonr_resorb, fill=ecoli)) +
+#   geom_bar(stat="identity", position=position_dodge())+
+# geom_errorbar(aes(ymin=max_both_nonr_resorb-sd, ymax=max_both_nonr_resorb+sd), width=0.2, position=position_dodge(0.9)) + 
+#   theme_classic() +
+#   geom_text(aes(x=timespan_tx, y=max_both_nonr_resorb+sd, label=paste("N=",l$N, "\n", l$groups)),vjust=-1, position=position_dodge(width=0.9), size=3)+
+#   xlab("Timespan treatment (days)")+ylab("maximum terminal oocyte length (mm)+/- standard deviation")+
+#   scale_fill_brewer(palette="PuBu")+#Can change colors if necessary 
+#   expand_limits(y=c(0,4))+
+#   ggsave("oocyte_letters+samplenumbers.png")
+```
+#making a boxplot
+```{r}
+#get rid of NE and R and re-level the "Days Alive"
+m_graph<-m
+m_graph$timespan_tx <- factor(m_graph$timespan_tx, levels = c("1", "5", "10","20"))
+m_graph %>% drop_na(timespan_tx)
+m_nonas<-m_graph[!is.na(m_graph$timespan_tx),]
+
+#m_nonas$ecoli<-revalue(m_nonas$ecoli, c("1"="Control", "2"="Ringers", "3"="E. coli"))
+
+oocyte_plot<-ggplot(data=m_nonas, aes(x=timespan_tx, y=max_both_nonr_resorb, fill=ecoli)) +
+  geom_boxplot() + 
+  geom_jitter(color="black", size=0.4, alpha=0.9) +
+  theme_classic() +
+  theme(axis.title.x = element_text(size=10, face="bold", color = "black"), axis.title.y = element_text(size=10, face="bold", color = "black"))+
+  theme(legend.position="none")+
+scale_fill_brewer(palette="PuBu", name="Immune Challenge \nTreatment", labels=c("Handling Control", "Injection Control", "Immune Challenge"))+
+  geom_text(data=cld_result_ooc, aes(label=.group, y=0.01), 
+               position = position_dodge(width = .75), 
+               show.legend = FALSE )+
+xlab("Age (days)")+ylab("Maximum Terminal Oocyte Length (mm)")
+  
+ggsave(plot=oocyte_plot, device="png", filename="oocyte_plot.png", path = "figures", height=4, width=4, dpi=1000) 
 ```
 
 ##Fat percentage analysis
@@ -131,22 +235,11 @@ ggplot(aes(x = timespan_tx, y=fat_percentage, fill=ecoli), data=m)+
 ```
 #Based on graph, decided not to do fat body statistical analysis as all measurements were all over the board
 
-#Graph for Dufour's gland
-Dufours analysis
-```{r, echo=FALSE}
-m$dufours.length<-as.numeric(as.character(m$dufours.length))
-dufplot<-ggplot(aes(x = timespan_tx, y=dufours.length, fill=ecoli), data=m)+
-  geom_boxplot()+
-  geom_point(position=position_jitterdodge())+
-  scale_fill_brewer(palette="Oranges", name="Immune Injection Treatment", labels=c("Handling Control", "Injection Control", "Immune Challenge"))+
-  xlab("Days alive")+ylab("Dufours Gland Length (mm)")+ggtitle("Immune and Age on Dufour's Gland")
-```
 Statistical Analysis
 ```{r}
 plotNormalHistogram(m$dufours.length)
 ad.test(m$dufours.length)
 #normal! 
-#Need to remove the NEs and Rs
 
 n<-subset(m, timespan_tx != "R"& timespan_tx!="NE")
 n$timespan_tx
@@ -163,12 +256,55 @@ duf_mod<-lmer(dufours.length~timespan_tx*ecoli+(1|Headwidth) + (1|bed), data=n)
 summary(duf_mod)
 anova(duf_mod)
 
+
+#Used the below for the paper
+duf_mod_paper<-lmer(dufours.length~timespan_tx*ecoli+(1|Headwidth), data=n)
+summary(duf_mod_paper)
+anova(duf_mod_paper)
+length(n)
+
 library(multcomp)
 summary(glht(duf_mod, linfct = mcp(timespan_tx = "Tukey")), test = adjusted("holm"))
 ```
 
+#Graph for Dufour's gland
+Dufours analysis
+```{r, echo=FALSE}
+
+library(emmeans)
+emm <- emmeans(duf_mod_paper, ~ ecoli * timespan_tx)
+comparison_duf <- pairs(emm, adjust = "tukey")
+summary(comparison_duf)
+
+library(multcomp)
+cld_result <- cld(emm, adjust = "tukey", Letters=letters)
+print(cld_result)
+```
+
+```{r}
+duf_plot<-ggplot(aes(x = timespan_tx, y=dufours.length, fill=ecoli), data=m_nonas)+
+  geom_boxplot()+
+  theme_classic()+
+  theme(legend.position="right")+
+  theme(axis.title.x = element_text(size=10, face="bold", color = "black"), axis.title.y = element_text(size=10, face="bold", color = "black"))+
+  geom_point(position=position_jitterdodge())+
+    geom_text(data=cld_result, aes(label=.group, y=3), 
+               position = position_dodge(width = .75), 
+               show.legend = FALSE )+
+  scale_fill_brewer(palette="PuBu", name="Immune Challenge \nTreatment", labels=c("Handling Control", "Injection Control", "Immune Challenge"))+
+  xlab("Age (days)")+ylab("Dufours Gland Length (mm)")
+
+
+
+ggsave(plot=duf_plot, device="png", filename="dufours_plot.png", path = "figures", width=4, height=4, dpi=1000) 
+```
+
+
+
+
 #Timespan affects Dufour's Length (unsuprising perhaps)
 #New graph to show significant difference
+#Was one interaction effect, but only with 3 samples in one interaction, hard to say what's going on-check later
 
 ```{r, echo=FALSE}
 sigs<-dufplot+
@@ -186,9 +322,3 @@ geom_signif(comparisons=list(c("5", "20")), annotations="***",
 graph_model<-sigs+annotate("text", x=3.5, y=8, label="Model: dufours.length~timespan_tx*ecoli+(1|headwidth) + (1|bed)")
 
 ```
-
-Oocyte analysis
-```{r}
-```
-
-Fat body analysis
